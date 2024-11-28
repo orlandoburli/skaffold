@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"runtime"
 	"sort"
 	"strings"
@@ -192,6 +193,11 @@ func assertCmdWasKilled(t *testutil.T, cmd *kubectl.Cmd) {
 }
 
 func TestPortForwardArgs(t *testing.T) {
+
+	if err := os.Setenv("CURRENT", "test"); err != nil {
+		t.Errorf("unexpected error, got %+v", err)
+	}
+
 	tests := []struct {
 		description string
 		input       *portForwardEntry
@@ -221,6 +227,13 @@ func TestPortForwardArgs(t *testing.T) {
 			servicePod:  "servicePod",
 			servicePort: 9999,
 			result:      []string{"--pod-running-timeout", "1s", "--namespace", "ns", "pod/servicePod", "8080:9999"},
+		},
+		{
+			description: "service to pod with template variable",
+			input:       newPortForwardEntry(0, latest.PortForwardResource{Type: "service", Name: "svc", Namespace: "ns", Port: schemautil.FromInt(9)}, "", "", "", "", 8080, false),
+			servicePod:  "servicePod-{{.CURRENT}}",
+			servicePort: 9999,
+			result:      []string{"--pod-running-timeout", "1s", "--namespace", "ns", "pod/servicePod-test", "8080:9999"},
 		},
 		{
 			description: "service could not be mapped to pod",

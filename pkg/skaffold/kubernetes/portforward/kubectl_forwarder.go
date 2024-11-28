@@ -174,22 +174,34 @@ func (k *KubectlForwarder) forward(ctx context.Context, pfe *portForwardEntry, e
 }
 
 func portForwardArgs(ctx context.Context, kubeContext string, pfe *portForwardEntry) []string {
+	// XPTO This is where we should resolve the resource name with variables
 	args := []string{"--pod-running-timeout", "1s", "--namespace", pfe.resource.Namespace}
 
 	_, disableServiceForwarding := os.LookupEnv("SKAFFOLD_DISABLE_SERVICE_FORWARDING")
+
+	resourceName, err := util.ExpandEnvTemplateOrFail(pfe.resource.Name, nil)
+	if err != nil {
+		log.Entry(ctx).Errorf("Could not parse resourceName %q, error: %v", pfe.resource.Name, err)
+	}
+
+	namespaceName, err := util.ExpandEnvTemplateOrFail(pfe.resource.Namespace, nil)
+	if err != nil {
+		log.Entry(ctx).Errorf("Could not parse namespaceName %q, error: %v", pfe.resource.Namespace, err)
+	}
+
 	switch {
 	case pfe.resource.Type == "service" && !disableServiceForwarding:
 		// Services need special handling: https://github.com/GoogleContainerTools/skaffold/issues/4522
-		podName, remotePort, err := findNewestPodForSvc(ctx, kubeContext, pfe.resource.Namespace, pfe.resource.Name, pfe.resource.Port)
+		podName, remotePort, err := findNewestPodForSvc(ctx, kubeContext, namespaceName, resourceName, pfe.resource.Port)
 		if err == nil {
 			args = append(args, fmt.Sprintf("pod/%s", podName), fmt.Sprintf("%d:%d", pfe.localPort, remotePort))
 			break
 		}
-		log.Entry(ctx).Warnf("could not map pods to service %s/%s/%s: %v", pfe.resource.Namespace, pfe.resource.Name, pfe.resource.Port.String(), err)
+		log.Entry(ctx).Warnf("could not map pods to service %s/%s/%s: %v", namespaceName, resourceName, pfe.resource.Port.String(), err)
 		fallthrough // and let kubectl try to handle it
 
 	default:
-		args = append(args, fmt.Sprintf("%s/%s", pfe.resource.Type, pfe.resource.Name), fmt.Sprintf("%d:%s", pfe.localPort, pfe.resource.Port.String()))
+		args = append(args, fmt.Sprintf("%s/%s", pfe.resource.Type, resourceName), fmt.Sprintf("%d:%s", pfe.localPort, pfe.resource.Port.String()))
 	}
 
 	if pfe.resource.Address != "" && pfe.resource.Address != util.Loopback {
